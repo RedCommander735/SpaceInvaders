@@ -1,0 +1,1 @@
+xcopy /s /y .\\assets .\\target\\debug\\assets\\
