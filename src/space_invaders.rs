@@ -13,10 +13,12 @@ pub const ALIEN_RIGHT: f32 = 200.;
 
 pub const PADDING_ALIEN: f32 = 4.;
 pub const ALIEN_SIZE: Vec2 = Vec2::new(28., 20.);
+const TANK_SIZE: Vec2 = Vec2::new(24., 28.);
 
 const VERT_STEP: f32 = ALIEN_SIZE.y + 2. * PADDING_ALIEN;
 
 const ALIEN_SPEED: f32 = 10.;
+const TANK_SPEED: f32 = 50.;
 const VERT_STEP_DISTANCE_FROM_MIDDLE: u32 = 50;
 
 pub const DEATH_LINE: f32 = -100.;
@@ -27,7 +29,10 @@ pub struct SpaceInvaders;
 impl Plugin for SpaceInvaders {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup)
-            // .add_systems(FixedUpdate, (move_aliens, check_for_collisions).chain())
+            .add_systems(
+                FixedUpdate,
+                (move_aliens, move_tank, check_for_collisions).chain(),
+            )
             .add_event::<CollisionEvent>();
     }
 }
@@ -39,7 +44,7 @@ pub struct CollisionEvent;
 struct Collider;
 
 #[derive(Component)]
-pub struct Cannon;
+pub struct Tank;
 
 #[derive(Component)]
 pub struct Alien;
@@ -96,7 +101,7 @@ fn setup(
                 y: 1.,
                 z: 0.,
             }),
-            material: materials.add(ColorMaterial::from(Color::RED)),
+            material: materials.add(ColorMaterial::from(Color::DARK_GRAY)),
             visibility: Visibility::Visible,
             ..default()
         },
@@ -107,39 +112,17 @@ fn setup(
     spawn_aliens(&mut cmd, 4, 7, &asset_server);
 
     // Spawn Connon
-    // cmd.spawn((
-    //     SpriteBundle {
-    //         texture: asset_server.load("alien2x.png"),
-    //         transform: Transform::from_xyz(0., DEATH_LINE - 20., 0.)
-    //         ..default()
-    //     },
-    //     Alien,
-    //     Collider,
-    //     Alive(true););)
-
     cmd.spawn((
         SpriteBundle {
             texture: asset_server.load("tank2x.png"),
             transform: Transform::from_xyz(0., DEATH_LINE - 50., 0.),
             ..Default::default()
         },
-        Cannon,
+        Tank,
         Collider,
         Alive(true),
         Lives(3),
     ));
-
-    cmd.spawn(ColorMesh2dBundle {
-        mesh: meshes.add(Mesh::from(shape::Quad::default())).into(),
-        transform: Transform::from_xyz(0., 0., 0.).with_scale(Vec3 {
-            x: 6.,
-            y: 6.,
-            z: 0.,
-        }),
-        material: materials.add(ColorMaterial::from(Color::RED)),
-        visibility: Visibility::Visible,
-        ..default()
-    });
 }
 
 fn check_for_collisions(
@@ -242,4 +225,33 @@ fn move_aliens(
             }
         }
     }
+}
+
+fn move_tank(
+    keyboard_input: Res<Input<KeyCode>>,
+    mut query: Query<&mut Transform, With<Tank>>,
+    time: Res<Time>,
+) {
+    let mut tank_transform = query.single_mut();
+    let mut direction = 0.0;
+
+    if keyboard_input.pressed(KeyCode::Left) {
+        direction -= 1.0;
+    }
+
+    if keyboard_input.pressed(KeyCode::Right) {
+        direction += 1.0;
+    }
+
+    // Calculate the new horizontal paddle position based on player input
+    let new_tank_position =
+        tank_transform.translation.x + direction * TANK_SPEED * time.delta_seconds();
+
+    // Update the paddle position,
+    // making sure it doesn't cause the paddle to leave the arena
+
+    let left_bound = -WINDOW_SIZE.x / 2.0 + TANK_SIZE.x / 2.0;
+    let right_bound = WINDOW_SIZE.x / 2.0 - TANK_SIZE.x / 2.0;
+
+    tank_transform.translation.x = new_tank_position.clamp(left_bound, right_bound);
 }
