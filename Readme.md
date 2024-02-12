@@ -1,0 +1,1 @@
+check h_step for horizontal dist; if enough, step down
