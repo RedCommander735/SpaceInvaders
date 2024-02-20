@@ -17,20 +17,34 @@ const BULLET_SIZE: Vec2 = Vec2::new(4., 12.);
 
 const VERT_STEP: f32 = ALIEN_SIZE.y + 2. * PADDING_ALIEN;
 
-const ALIEN_SPEED: f32 = 10.;
 const TANK_SPEED: f32 = 50.;
-const BULLET_SPEED: f32 = 100.;
+
 const VERT_STEP_DISTANCE_FROM_MIDDLE: u32 = 50;
 
 const BULLET_LIMIT: i16 = 5;
 
 pub const DEATH_LINE: f32 = -100.;
 
+const SCOREBOARD_FONT_SIZE: f32 = 20.0;
+const SCOREBOARD_TEXT_PADDING: Val = Val::Px(5.0);
+const SCORE_COLOR: Color = Color::rgb(0.9, 0.9, 0.9);
+const TEXT_COLOR: Color = Color::rgb(1.0, 1.0, 1.0);
+
 pub struct SpaceInvaders;
 
 impl Plugin for SpaceInvaders {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup)
+            .insert_resource(TimeSinceLastShot {
+                time: Stopwatch::new(),
+            })
+            .insert_resource(Scoreboard { score: 0 })
+            .insert_resource(Level { level: 1 })
+            .insert_resource(CurrentSize {
+                n_rows: 4,
+                n_columns: 7,
+            })
+            .insert_resource(AlienSpeed { speed: 10. })
             .add_systems(
                 FixedUpdate,
                 (
@@ -39,10 +53,10 @@ impl Plugin for SpaceInvaders {
                     fire_bullet,
                     bullet_system,
                     check_for_collisions,
-                    check_win,
                 )
                     .chain(),
             )
+            .add_systems(Update, (update_text, check_win))
             .add_event::<CollisionEvent>();
     }
 }
@@ -85,9 +99,30 @@ struct TimeSinceLastShot {
     time: Stopwatch,
 }
 
+// This resource tracks the game's score
+#[derive(Resource)]
+struct Scoreboard {
+    score: usize,
+}
+
+#[derive(Resource)]
+struct Level {
+    level: usize,
+}
+
+#[derive(Resource)]
+struct CurrentSize {
+    n_rows: u32,
+    n_columns: u32,
+}
+
+#[derive(Resource)]
+struct AlienSpeed {
+    speed: f32,
+}
+
 #[derive(Component)]
 struct Movement {
-    speed: f32,
     direction_x: DirectionX,
     direction_y: DirectionY,
 }
@@ -114,6 +149,7 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     asset_server: Res<AssetServer>,
+    size: Res<CurrentSize>,
 ) {
     cmd.spawn((
         ColorMesh2dBundle {
@@ -131,7 +167,7 @@ fn setup(
         Collider,
     ));
 
-    spawn_aliens(&mut cmd, 4, 7, &asset_server);
+    spawn_aliens(&mut cmd, size.n_rows, size.n_columns, &asset_server);
 
     // Spawn Tank
     cmd.spawn((
@@ -146,9 +182,43 @@ fn setup(
         Lives(3),
     ));
 
-    cmd.insert_resource(TimeSinceLastShot {
-        time: Stopwatch::new(),
-    })
+    // Scoreboard
+    cmd.spawn(
+        TextBundle::from_sections([
+            TextSection::new(
+                "Score: ",
+                TextStyle {
+                    font_size: SCOREBOARD_FONT_SIZE,
+                    color: TEXT_COLOR,
+                    ..default()
+                },
+            ),
+            TextSection::from_style(TextStyle {
+                font_size: SCOREBOARD_FONT_SIZE,
+                color: SCORE_COLOR,
+                ..default()
+            }),
+            TextSection::new(
+                "\nLevel: ",
+                TextStyle {
+                    font_size: SCOREBOARD_FONT_SIZE,
+                    color: TEXT_COLOR,
+                    ..default()
+                },
+            ),
+            TextSection::from_style(TextStyle {
+                font_size: SCOREBOARD_FONT_SIZE,
+                color: SCORE_COLOR,
+                ..default()
+            }),
+        ])
+        .with_style(Style {
+            position_type: PositionType::Absolute,
+            top: SCOREBOARD_TEXT_PADDING,
+            left: SCOREBOARD_TEXT_PADDING,
+            ..default()
+        }),
+    );
 }
 
 fn check_for_collisions(
@@ -158,8 +228,9 @@ fn check_for_collisions(
     death_line_query: Query<(Entity, &Transform), (With<Collider>, With<DeathLine>)>,
     bullet_query: Query<(Entity, &Transform), (With<Collider>, With<Bullet>)>,
     mut collision_events: EventWriter<CollisionEvent>,
+    mut scoreboard: ResMut<Scoreboard>,
 ) {
-    for (collider_entity, transform) in &death_line_query {
+    for (_collider_entity, transform) in &death_line_query {
         for (_entity, alien) in &mut alien_query {
             let collision = collide(
                 alien.translation,
@@ -167,7 +238,7 @@ fn check_for_collisions(
                 transform.translation,
                 transform.scale.truncate(),
             );
-            if let Some(collision) = collision {
+            if let Some(_collision) = collision {
                 // Sends a collision event so that other systems can react to the collision
                 collision_events.send_default();
 
@@ -186,8 +257,9 @@ fn check_for_collisions(
                 transform.translation,
                 BULLET_SIZE,
             );
-            if let Some(collision) = collision {
+            if let Some(_collision) = collision {
                 // Sends a collision event so that other systems can react to the collision
+                scoreboard.score += 10;
                 collision_events.send_default();
                 cmd.entity(collider_entity).despawn();
                 cmd.entity(entity).despawn();
@@ -234,7 +306,6 @@ fn spawn_aliens(
                 Collider,
                 Alive(true),
                 Movement {
-                    speed: ALIEN_SPEED,
                     direction_x: DirectionX::RIGHT,
                     direction_y: DirectionY::NONE,
                 },
@@ -245,12 +316,13 @@ fn spawn_aliens(
 }
 
 fn move_aliens(
-    mut cmd: Commands,
+    mut _cmd: Commands,
     time: Res<Time>,
     mut query: Query<(&mut Movement, &mut HorizontalStep, &mut Transform), With<Alien>>,
+    speed: Res<AlienSpeed>,
 ) {
     for (mut movement, mut h_step, mut transform) in &mut query {
-        let delta = movement.speed * movement.direction_x as i8 as f32 * time.delta_seconds();
+        let delta = speed.speed * movement.direction_x as i8 as f32 * time.delta_seconds();
         transform.translation.x += delta;
         h_step.0 += delta;
         // eprintln!("{}", h_step.0);
@@ -310,7 +382,7 @@ fn fire_bullet(
 
     if keyboard_input.just_pressed(KeyCode::Space)
         && bullet_limit > 0
-        && stopwatch.time.elapsed_secs() > 0.5
+        && stopwatch.time.elapsed_secs() > 0.25
     {
         stopwatch.time.reset();
         cmd.spawn((
@@ -341,7 +413,7 @@ fn bullet_system(
     mut cmd: Commands,
 ) {
     for (movement, mut transform, entity) in &mut bullets {
-        let delta = movement.speed * movement.direction_y as i8 as f32 * time.delta_seconds();
+        let delta = BULLET_SPEED * movement.direction_y as i8 as f32 * time.delta_seconds();
         transform.translation.y += delta;
 
         if transform.translation.y + BULLET_SIZE.y / 2. >= WINDOW_SIZE.y / 2. {
@@ -350,8 +422,35 @@ fn bullet_system(
     }
 }
 
-fn check_win(aliens: Query<Entity, With<Alien>>, mut exit: EventWriter<AppExit>) {
+fn check_win(
+    aliens: Query<Entity, With<Alien>>,
+    mut exit: EventWriter<AppExit>,
+    mut level: ResMut<Level>,
+    mut cmd: Commands,
+    asset_server: Res<AssetServer>,
+    mut size: ResMut<CurrentSize>,
+    mut speed: ResMut<AlienSpeed>,
+) {
     if aliens.iter().count() == 0 {
-        exit.send(AppExit)
+        level.level += 1;
+
+        let l = level.level;
+
+        if l % 3 == 0 {
+            size.n_rows += 1;
+        } else if l % 3 == 1 {
+            size.n_columns += 1;
+        } else {
+            speed.speed += 2.;
+        }
+
+        spawn_aliens(&mut cmd, size.n_rows, size.n_columns, &asset_server);
+        // exit.send(AppExit)
     }
+}
+
+fn update_text(scoreboard: Res<Scoreboard>, mut query: Query<&mut Text>, level: Res<Level>) {
+    let mut text = query.single_mut();
+    text.sections[1].value = scoreboard.score.to_string();
+    text.sections[3].value = level.level.to_string();
 }
