@@ -333,7 +333,7 @@ fn spawn_aliens(
 
     for row in 0..n_rows {
         for column in 0..n_columns {
-            let brick_position = Vec2::new(
+            let alien_pos = Vec2::new(
                 offset_x + column as f32 * (ALIEN_SIZE.x + 2. * PADDING_ALIEN),
                 offset_y + row as f32 * (ALIEN_SIZE.y + 2. * PADDING_ALIEN),
             );
@@ -342,7 +342,7 @@ fn spawn_aliens(
                 SpriteBundle {
                     texture: asset_server.load("alien2x.png"),
                     transform: Transform {
-                        translation: brick_position.extend(0.0),
+                        translation: alien_pos.extend(0.0),
                         ..default()
                     },
                     ..default()
