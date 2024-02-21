@@ -10,20 +10,21 @@ use bevy::time::Stopwatch;
 pub const WINDOW_SIZE: Vec2 = Vec2::new(900., 600.);
 // delta x: 450 | delta y: 300
 
-pub const PADDING_ALIEN: f32 = 4.;
-pub const ALIEN_SIZE: Vec2 = Vec2::new(28., 20.);
+const PADDING_ALIEN: f32 = 4.;
+const ALIEN_SIZE: Vec2 = Vec2::new(28., 20.);
 const TANK_SIZE: Vec2 = Vec2::new(24., 28.);
 const BULLET_SIZE: Vec2 = Vec2::new(4., 12.);
 
 const VERT_STEP: f32 = ALIEN_SIZE.y + 2. * PADDING_ALIEN;
 
 const TANK_SPEED: f32 = 50.;
+const BULLET_SPEED: f32 = 100.;
 
 const VERT_STEP_DISTANCE_FROM_MIDDLE: u32 = 50;
 
 const BULLET_LIMIT: i16 = 5;
 
-pub const DEATH_LINE: f32 = -100.;
+const DEATH_LINE: f32 = -100.;
 
 const SCOREBOARD_FONT_SIZE: f32 = 20.0;
 const SCOREBOARD_TEXT_PADDING: Val = Val::Px(5.0);
@@ -45,6 +46,10 @@ impl Plugin for SpaceInvaders {
                 n_columns: 7,
             })
             .insert_resource(AlienSpeed { speed: 10. })
+            .insert_resource(Running {
+                running: true
+            })
+            .add_event::<CollisionEvent>()
             .add_systems(
                 FixedUpdate,
                 (
@@ -56,43 +61,36 @@ impl Plugin for SpaceInvaders {
                 )
                     .chain(),
             )
-            .add_systems(Update, (update_text, check_win))
-            .add_event::<CollisionEvent>();
+            .add_systems(Update, (update_text, check_win));
     }
 }
 
 #[derive(Event, Default)]
-pub struct CollisionEvent;
+struct CollisionEvent;
 
 #[derive(Component)]
 struct Collider;
 
 #[derive(Component)]
-pub struct Tank;
+struct Tank;
 
 #[derive(Component)]
-pub struct Alien;
+struct Alien;
 
 #[derive(Component)]
-pub struct Bullet;
+struct Bullet;
 
 #[derive(Component)]
-pub struct Barrier;
+struct KillBullets;
 
 #[derive(Component)]
-pub struct KillBullets;
+struct DeathLine;
 
 #[derive(Component)]
-pub struct DeathLine;
+struct Velocity(Vec2);
 
 #[derive(Component)]
-pub struct Lives(u8);
-
-#[derive(Component)]
-pub struct Velocity(Vec2);
-
-#[derive(Component)]
-pub struct Alive(bool);
+struct ScoreBoard;
 
 #[derive(Resource)]
 struct TimeSinceLastShot {
@@ -121,11 +119,18 @@ struct AlienSpeed {
     speed: f32,
 }
 
+#[derive(Resource)]
+struct Running {
+    running: bool
+}
+
 #[derive(Component)]
 struct Movement {
     direction_x: DirectionX,
     direction_y: DirectionY,
 }
+
+
 
 #[derive(Component)]
 struct HorizontalStep(f32);
@@ -178,13 +183,11 @@ fn setup(
         },
         Tank,
         Collider,
-        Alive(true),
-        Lives(3),
     ));
 
     // Scoreboard
     cmd.spawn(
-        TextBundle::from_sections([
+        (TextBundle::from_sections([
             TextSection::new(
                 "Score: ",
                 TextStyle {
@@ -218,7 +221,8 @@ fn setup(
             left: SCOREBOARD_TEXT_PADDING,
             ..default()
         }),
-    );
+        ScoreBoard
+    ));
 }
 
 fn check_for_collisions(
@@ -229,9 +233,10 @@ fn check_for_collisions(
     bullet_query: Query<(Entity, &Transform), (With<Collider>, With<Bullet>)>,
     mut collision_events: EventWriter<CollisionEvent>,
     mut scoreboard: ResMut<Scoreboard>,
+    mut running: ResMut<Running>
 ) {
     for (_collider_entity, transform) in &death_line_query {
-        for (_entity, alien) in &mut alien_query {
+        for (_, alien) in &alien_query {
             let collision = collide(
                 alien.translation,
                 ALIEN_SIZE,
@@ -239,12 +244,52 @@ fn check_for_collisions(
                 transform.scale.truncate(),
             );
             if let Some(_collision) = collision {
-                // Sends a collision event so that other systems can react to the collision
                 collision_events.send_default();
 
-                // Bricks should be despawned and increment the scoreboard on collision
-                // TODO - Implement life loss and round restart here
-                todo!()
+                running.running = false;
+
+                for (entity, _) in &alien_query {
+                    cmd.entity(entity).despawn();
+                }   
+
+                cmd.spawn(
+                    TextBundle::from_sections([
+                        TextSection::new(
+                            "GAME OVER",
+                            TextStyle {
+                                font_size: 40.,
+                                color: Color::Rgba {
+                                    red: 1.,
+                                    green: 0.5,
+                                    blue: 0.5,
+                                    alpha: 1.,
+                                },
+                                ..default()
+                            },
+                        ),
+                        TextSection::new(
+                            format!("\nScore: {}", scoreboard.score),
+                            TextStyle {
+                                font_size: 20.,
+                                color: Color::Rgba {
+                                    red: 1.,
+                                    green: 0.5,
+                                    blue: 0.5,
+                                    alpha: 1.,
+                                },
+                                ..default()
+                            },
+                        ),
+                    ])
+                    .with_style(Style {
+                        display: Display::Flex,
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(WINDOW_SIZE.x / 2. - 95.),
+                        top: Val::Percent (40.),
+                        ..default()
+                    })
+                    .with_text_alignment(TextAlignment::Center),
+                );
             }
         }
     }
@@ -304,7 +349,6 @@ fn spawn_aliens(
                 },
                 Alien,
                 Collider,
-                Alive(true),
                 Movement {
                     direction_x: DirectionX::RIGHT,
                     direction_y: DirectionY::NONE,
@@ -396,9 +440,7 @@ fn fire_bullet(
             },
             Bullet,
             Collider,
-            Alive(true),
             Movement {
-                speed: BULLET_SPEED,
                 direction_x: DirectionX::NONE,
                 direction_y: DirectionY::UP,
             },
@@ -430,8 +472,9 @@ fn check_win(
     asset_server: Res<AssetServer>,
     mut size: ResMut<CurrentSize>,
     mut speed: ResMut<AlienSpeed>,
+    running: Res<Running>
 ) {
-    if aliens.iter().count() == 0 {
+    if aliens.iter().count() == 0 && running.running {
         level.level += 1;
 
         let l = level.level;
@@ -441,16 +484,15 @@ fn check_win(
         } else if l % 3 == 1 {
             size.n_columns += 1;
         } else {
-            speed.speed += 2.;
+            speed.speed += 5.;
         }
 
         spawn_aliens(&mut cmd, size.n_rows, size.n_columns, &asset_server);
-        // exit.send(AppExit)
     }
 }
 
-fn update_text(scoreboard: Res<Scoreboard>, mut query: Query<&mut Text>, level: Res<Level>) {
+fn update_text(scoreboard: Res<Scoreboard>, mut query: Query<&mut Text, With<ScoreBoard>>, level: Res<Level>) {
     let mut text = query.single_mut();
-    text.sections[1].value = scoreboard.score.to_string();
+    text.sections[1].value = format!("{}", scoreboard.score);
     text.sections[3].value = level.level.to_string();
 }
