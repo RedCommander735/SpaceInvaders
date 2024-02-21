@@ -2,7 +2,7 @@
 
 A simple space invaders project done in bevy for my computer science course
 
-Compiled binarys for windows can be found [here](/releases) and if you want to run or build it yourself from source you can either do  
+Compiled binarys for windows can be found in the releases and if you want to run or build it yourself from source you can either do  
 
 
 ```
