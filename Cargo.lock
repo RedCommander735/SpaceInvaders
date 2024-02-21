@@ -3,6 +3,13 @@
 version = 3
 
 [[package]]
+name = "SpaceInvaders"
+version = "1.0.0"
+dependencies = [
+ "bevy",
+]
+
+[[package]]
 name = "ab_glyph"
 version = "0.2.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -917,13 +924,6 @@ dependencies = [
  "concurrent-queue",
  "futures-lite 1.13.0",
  "wasm-bindgen-futures",
-]
-
-[[package]]
-name = "bevy_test"
-version = "0.1.0"
-dependencies = [
- "bevy",
 ]
 
 [[package]]
